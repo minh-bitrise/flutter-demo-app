@@ -1,0 +1,318 @@
+---
+format_version: '13'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: flutter
+workflows:
+  fluttercache:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/bin/bash
+
+            # Create a temp directory for test files
+            mkdir -p test_files
+            cd test_files
+
+            # Create some dummy text files
+            echo "Hello from Bitrise!" > file1.txt
+            echo "Another test file." > file2.txt
+            head -c 100 </dev/urandom > random.bin
+
+            # Go back and zip the files
+            cd ..
+            zip -r test-artifacts.zip test_files
+
+            # Move the ZIP to the deploy directory
+            mv test-artifacts.zip "$BITRISE_DEPLOY_DIR"
+    - deploy-to-bitrise-io@2: {}
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo $BITRISE_PERMANENT_DOWNLOAD_URL_MAP
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    meta:
+      bitrise.io:
+        stack: osx-xcode-16.4.x
+        machine_type_id: g2.mac.large
+  deploy:
+    description: |
+      Builds and deploys app using [Deploy to bitrise.io Step](https://devcenter.bitrise.io/en/getting-started/getting-started-with-flutter-apps.html#deploying-a-flutter-app).
+
+      If you build for iOS, make sure to set up code signing secrets on Bitrise for a successful build.
+
+      Next steps:
+      - Check out [Getting started with Flutter apps](https://devcenter.bitrise.io/en/getting-started/getting-started-with-flutter-apps.html) for signing and deployment options.
+      - Check out the [Code signing guide](https://devcenter.bitrise.io/en/code-signing.html) for iOS and Android
+    steps:
+    - git-clone@8:
+        inputs:
+        - merge_pr: 'no'
+        - branch: "$BITRISEIO_GIT_BRANCH_DEST"
+    - certificate-and-profile-installer@1: {}
+    - flutter-installer@0:
+        inputs:
+        - version: 3.7.12
+        - is_update: 'false'
+    - flutter-analyze@0:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+    - flutter-test@1:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+    - flutter-build@0:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        - platform: both
+        - ios_output_type: archive
+    - deploy-to-bitrise-io@2: {}
+    - restore-cache@2:
+        inputs:
+        - key: fr
+    - script@1: {}
+    - create-zip@0:
+        inputs:
+        - source_path: f
+        - destination: f
+    - expo-detach@1: {}
+    - restore-gradle-configuration-cache@1: {}
+    - fastlane@3: {}
+    - google-play-rollout-update@0: {}
+    - jira-comments@0: {}
+    - create-a-new-release-in-jira@1: {}
+    - giphy@0: {}
+    - set-android-manifest-package-name@0:
+        inputs:
+        - package_name: f
+    - secure-delete-path@2: {}
+    - pebble-build@1: {}
+    - find-jira-issue@0: {}
+    - monitoring-apps-permissions@1:
+        inputs:
+        - ios_app_name: g
+  primary:
+    description: |
+      Builds project and runs tests.
+
+      Next steps:
+      - Check out [Getting started with Flutter apps](https://devcenter.bitrise.io/en/getting-started/getting-started-with-flutter-apps.html).
+    steps:
+    - git-clone@8: {}
+    - flutter-installer@0:
+        inputs:
+        - version: 3.7.12
+        - is_update: 'false'
+    - restore-dart-cache@1: {}
+    - flutter-test@1:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+    - save-dart-cache@1: {}
+    - deploy-to-bitrise-io@2: {}
+    envs:
+    - j: 3
+      opts:
+        is_expand: false
+  export_test_results:
+    steps:
+    - custom-test-results-export@1:
+        inputs:
+        - test_name: name_of_your_test
+        - search_pattern: your_test_result_search_pattern
+  android_code_signing_vars:
+    steps:
+    - sign-apk@2: {}
+    - bitrise-step-export-universal-apk@0: {}
+  single_step_workflow:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # Create a simple script to demonstrate the variable is set
+            echo $mobile
+    meta:
+      bitrise.io:
+        stack: linux-docker-android-22.04
+        machine_type_id: standard
+  main_workflow:
+    steps:
+    - script@1:
+        inputs:
+        - content: |
+            #!/bin/bash
+            git clone git@bitbucket.org:hanssem/remodeling-ios-package.git
+            echo "Current working directory:"
+            pwd
+    - script@1:
+        inputs:
+        - content: "#!/usr/bin/env bash
+
+            set -e
+
+            \         \ 
+
+            # Print the current Flutter version
+
+            echo \"Current Flutter version:\"
+
+            flutter --version\n"
+    - restore-cache@2:
+        inputs:
+        - key: |-
+            flutter-sdk-3.29.2-{{ .OS }}
+            flutter-sdk-{{ .OS }}
+    - save-cache@1:
+        inputs:
+        - key: flutter-sdk-3.29.2-{{ .OS }}
+        - paths: "/Users/vagrant/flutter-sdk"
+        - is_key_unique: true
+    - deploy-to-bitrise-io@2:
+        inputs:
+        - pipeline_intermediate_files: ".*:ALL_FILES"
+    after_run:
+    - single_step_workflow
+    meta:
+      bitrise.io:
+        stack: osx-xcode-15.4.x
+        machine_type_id: g2-m1.4core
+  xcode:
+    steps:
+    - git::https://github.com/bitrise-steplib/steps-xcode-archive@debug_paging: {}
+  wartianio:
+    steps:
+    - script@1:
+        inputs:
+        - content: envman add --key test --value "3.0"
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo $test
+  yarn_debug:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            envman add --key zero --value "0345"
+            echo $zero
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo $zero
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+  test:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/bin/bash
+
+            # Replace with your secret env var key
+            SECRET_NAME="test"
+
+            # Access the secret
+            SECRET_VALUE="${!SECRET_NAME}"
+
+            # Print value
+            echo "Value: $SECRET_VALUE"
+
+            # Detect and print type
+            if [ -z "${!SECRET_NAME+x}" ]; then
+              echo "Type: undefined (not set)"
+            elif [ -z "$SECRET_VALUE" ]; then
+              echo "Type: null or empty string"
+            else
+              echo "Type: string"
+            fi
+  printenv:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            if [ ! -z "$API_NUMBER_OF_SHARDS_FOR_UI_TESTS" ]; then
+              envman add --key NUMBER_OF_SHARDS_FOR_UI_TESTS --value "$API_NUMBER_OF_SHARDS_FOR_UI_TESTS"
+            fi
+    - android-unit-test@1: {}
+    envs:
+    - NUMBER_OF_SHARDS_FOR_UI_TESTS: '5'
+      opts:
+        is_expand: false
+meta:
+  bitrise.io:
+    stack: osx-xcode-16.2.x
+    machine_type_id: g2.mac.large
+app:
+  envs:
+  - BITRISE_FLUTTER_PROJECT_LOCATION: ''
+    opts:
+      is_expand: false
+  - mobile:
+    opts:
+      is_expand: false
+  - delete: delete
+    opts:
+      is_expand: false
+  - hey: 3.0
+    opts:
+      is_expand: false
+pipelines:
+  kp:
+    workflows:
+      printenv:
+        parallel: "$NUMBER_OF_SHARDS_FOR_UI_TESTS"
